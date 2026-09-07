@@ -1,10 +1,13 @@
 package com.zonad.api.controller;
 
-import com.zonad.api.service.FichaService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.zonad.api.service.FichaService;
 
 @RestController
 @RequestMapping("/fichas")
@@ -30,19 +33,39 @@ public class FichaController {
                 );
             }
 
+            Object valorFicha = ficha.get("Ficha");
+
+             if (valorFicha == null) {
+                return ResponseEntity.internalServerError()
+                        .body(Map.of(
+                                "mensaje", "La ficha no contiene el campo Ficha"
+                        ));
+            }
+
             return ResponseEntity.ok(
                     Map.of(
-                            "ok", true,
-                            "ficha", ficha
+                            "Ficha", valorFicha.toString()
                     )
             );
 
         } catch (Exception e) {
+
+            e.printStackTrace();
+
+            Throwable causa = e;
+
+            while (causa.getCause() != null) {
+                causa = causa.getCause();
+            }
+
             return ResponseEntity.internalServerError().body(
                     Map.of(
                             "ok", false,
                             "mensaje", "Error al obtener la ficha",
-                            "error", e.getMessage() == null ? "Error interno" : e.getMessage()
+                            "error", e.getMessage() == null ? "Error interno" : e.getMessage(),
+                            "causa", causa.getMessage() == null
+                                    ? causa.getClass().getName()
+                                    : causa.getMessage()
                     )
             );
         }

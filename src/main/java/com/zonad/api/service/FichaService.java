@@ -1,12 +1,18 @@
 package com.zonad.api.service;
 
-import com.google.cloud.firestore.*;
-import org.springframework.stereotype.Service;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+
+import org.springframework.stereotype.Service;
+
+import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.FieldValue;
+import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.Query;
+import com.google.cloud.firestore.QueryDocumentSnapshot;
+import com.google.cloud.firestore.QuerySnapshot;
 
 @Service
 public class FichaService {
@@ -27,7 +33,7 @@ public class FichaService {
         return db.runTransaction(transaction -> {
 
             Query query = db.collection(COLLECTION)
-                    .whereEqualTo("estatus", NUEVA)
+                    .whereEqualTo("Estado", NUEVA)
                     .limit(1);
 
             QuerySnapshot snapshot = transaction.get(query).get();
@@ -41,13 +47,13 @@ public class FichaService {
             DocumentReference ref = doc.getReference();
 
             transaction.update(ref, Map.of(
-                    "estatus", VENDIDA,
-                    "fechaVenta", FieldValue.serverTimestamp()
+                    "Estado", VENDIDA,
+                    "FechaVenta", FieldValue.serverTimestamp()
             ));
 
             Map<String, Object> respuesta = new HashMap<>(doc.getData());
             respuesta.put("id", doc.getId());
-            respuesta.put("estatus", VENDIDA);
+            respuesta.put("Estado", VENDIDA);
 
             return respuesta;
         }).get();
