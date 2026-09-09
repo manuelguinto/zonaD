@@ -1,0 +1,1386 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+
+// ======================================================
+// CONFIGURACIÓN GENERAL
+// ======================================================
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+#define PIN_MONEDERO 18
+
+#define OLED_SDA 21
+#define OLED_SCL 22
+
+#define OLED_ADDRESS 0x3C
+
+
+// ======================================================
+// PRECIO DE LA FICHA
+// ======================================================
+
+const unsigned long PRECIO_FICHA = 10;
+
+
+// ======================================================
+// CONFIGURACIÓN DEL FILTRO DE PULSOS
+// ======================================================
+
+volatile unsigned long ultimoPulsoUs = 0;
+
+// 70 ms
+const unsigned long FILTRO_PULSO_US = 70000;
+
+
+// ======================================================
+// CONFIGURACIÓN WIFI
+// ======================================================
+
+const char* ssid = "Zona-D";
+
+// Coloca aquí tu contraseña WiFi
+const char* password = "147896325d";
+
+
+// ======================================================
+// VARIABLES DE ESTADO
+// ======================================================
+
+bool mostrandoFicha = false;
+
+bool mostrandoError = false;
+
+
+// ======================================================
+// TIEMPO DE PANTALLA DE FICHA
+// ======================================================
+
+unsigned long inicioPantallaFicha = 0;
+
+const unsigned long TIEMPO_FICHA_MS = 20000;
+
+
+// ======================================================
+// TIEMPO DE PANTALLA DE ERROR
+// ======================================================
+
+unsigned long inicioPantallaError = 0;
+
+const unsigned long TIEMPO_ERROR_MS = 20000;
+
+
+// ======================================================
+// SALDO BASE DE LA FICHA
+// ======================================================
+//
+// Saldo que queda inmediatamente después
+// de descontar los $10 de una venta exitosa.
+//
+// Nos permite saber si entró una nueva moneda
+// mientras se muestra la ficha.
+// ======================================================
+
+unsigned long saldoBaseFicha = 0;
+
+
+// ======================================================
+// SALDO BASE DEL ERROR
+// ======================================================
+//
+// Saldo que queda después de descontar los $10
+// correspondientes al código de reembolso.
+//
+// Ejemplo:
+//
+// Usuario ingresó $11
+//
+// $10 quedan asociados al código de reembolso
+// $1 permanece como saldo a favor.
+//
+// saldoBaseError = 1
+//
+// Si durante la pantalla de error entra una moneda,
+// pulsos será diferente de saldoBaseError.
+// ======================================================
+
+unsigned long saldoBaseError = 0;
+
+
+// ======================================================
+// OBJETO OLED
+// ======================================================
+
+Adafruit_SSD1306 display(
+  SCREEN_WIDTH,
+  SCREEN_HEIGHT,
+  &Wire,
+  -1
+);
+
+
+// ======================================================
+// VARIABLES DEL MONEDERO
+// ======================================================
+
+volatile unsigned long pulsos = 0;
+
+
+// ======================================================
+// INTERRUPCIÓN DEL MONEDERO
+// ======================================================
+
+void IRAM_ATTR contarPulso() {
+
+  unsigned long ahora = micros();
+
+  if (
+    ahora - ultimoPulsoUs
+    >= FILTRO_PULSO_US
+  ) {
+
+    pulsos++;
+
+    ultimoPulsoUs = ahora;
+  }
+}
+
+
+// ======================================================
+// INICIALIZAR OLED
+// ======================================================
+
+void inicializarPantalla() {
+
+  Wire.begin(
+    OLED_SDA,
+    OLED_SCL
+  );
+
+
+  if (
+    !display.begin(
+      SSD1306_SWITCHCAPVCC,
+      OLED_ADDRESS
+    )
+  ) {
+
+    Serial.println(
+      "No se encontro la pantalla OLED"
+    );
+
+    while (true) {
+
+      delay(1000);
+    }
+  }
+
+
+  display.clearDisplay();
+
+
+  display.setTextColor(
+    SSD1306_WHITE
+  );
+
+
+  display.setTextSize(2);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Zona D"
+  );
+
+
+  display.setTextSize(1);
+
+  display.println(
+    "Cetis 117"
+  );
+
+
+  display.println();
+
+
+  display.println(
+    "Iniciando..."
+  );
+
+
+  display.display();
+}
+
+
+// ======================================================
+// CONECTAR WIFI
+// ======================================================
+
+void conectarWiFi() {
+
+  display.clearDisplay();
+
+  display.setTextSize(1);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Conectando WiFi..."
+  );
+
+
+  display.display();
+
+
+  WiFi.begin(
+    ssid,
+    password
+  );
+
+
+  while (
+    WiFi.status()
+    != WL_CONNECTED
+  ) {
+
+    delay(500);
+
+    Serial.print(".");
+  }
+
+
+  Serial.println();
+
+
+  Serial.println(
+    "WiFi conectado"
+  );
+
+
+  Serial.print(
+    "IP: "
+  );
+
+
+  Serial.println(
+    WiFi.localIP()
+  );
+
+
+  display.clearDisplay();
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "WiFi conectado"
+  );
+
+
+  display.display();
+
+
+  delay(1000);
+}
+
+
+// ======================================================
+// CONFIGURAR MONEDERO
+// ======================================================
+
+void inicializarMonedero() {
+
+  pinMode(
+    PIN_MONEDERO,
+    INPUT_PULLUP
+  );
+
+
+  delay(500);
+
+
+  attachInterrupt(
+    digitalPinToInterrupt(
+      PIN_MONEDERO
+    ),
+
+    contarPulso,
+
+    FALLING
+  );
+
+
+  Serial.println(
+    "Monedero listo"
+  );
+
+
+  Serial.println(
+    "Esperando pulsos..."
+  );
+}
+
+
+// ======================================================
+// MOSTRAR PANTALLA PRINCIPAL
+// ======================================================
+
+void mostrarPantallaInicial() {
+
+  display.clearDisplay();
+
+  display.setTextSize(2);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Zona D"
+  );
+
+
+  display.setTextSize(1);
+
+  display.println(
+    "Cetis 117"
+  );
+
+
+  display.println();
+
+
+  display.println(
+    "Saldo:"
+  );
+
+
+  display.setTextSize(2);
+
+  display.println(
+    "$0"
+  );
+
+
+  display.display();
+}
+
+
+// ======================================================
+// MOSTRAR SALDO
+// ======================================================
+
+void mostrarSaldo(
+  unsigned long saldo
+) {
+
+  display.clearDisplay();
+
+  display.setTextSize(2);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Zona D"
+  );
+
+
+  display.setTextSize(1);
+
+  display.println(
+    "Cetis 117"
+  );
+
+
+  display.println();
+
+
+  display.println(
+    "Saldo acumulado:"
+  );
+
+
+  display.setTextSize(3);
+
+  display.print(
+    "$"
+  );
+
+
+  display.println(
+    saldo
+  );
+
+
+  display.display();
+}
+
+
+// ======================================================
+// MOSTRAR FICHA
+// ======================================================
+
+void mostrarFicha(
+  String ficha
+) {
+
+  display.clearDisplay();
+
+  display.setTextSize(2);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Zona D"
+  );
+
+
+  display.setTextSize(1);
+
+  display.println(
+    "Cetis 117"
+  );
+
+
+  display.println();
+
+
+  display.println(
+    "Ficha Generada:"
+  );
+
+
+  display.setTextSize(3);
+
+  display.println(
+    ficha
+  );
+
+
+  display.display();
+}
+
+
+// ======================================================
+// MOSTRAR GENERANDO FICHA
+// ======================================================
+
+void mostrarGenerandoFicha() {
+
+  display.clearDisplay();
+
+  display.setTextSize(2);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Zona D"
+  );
+
+
+  display.setTextSize(1);
+
+  display.println(
+    "Cetis 117"
+  );
+
+
+  display.println();
+
+
+  display.println(
+    "Generando ficha,"
+  );
+
+
+  display.println(
+    "espere un momento"
+  );
+
+
+  display.println(
+    "por favor..."
+  );
+
+
+  display.display();
+}
+
+
+// ======================================================
+// GENERAR CÓDIGO DE REEMBOLSO
+// ======================================================
+
+String generarCodigoReembolso() {
+
+  unsigned long numero =
+    random(
+      100000,
+      1000000
+    );
+
+
+  return
+    "ZD-" + String(numero);
+}
+
+
+// ======================================================
+// MOSTRAR CÓDIGO DE REEMBOLSO
+// ======================================================
+
+void mostrarErrorReembolso(
+  String codigo
+) {
+
+  display.clearDisplay();
+
+  display.setTextSize(2);
+
+  display.setCursor(
+    0,
+    0
+  );
+
+
+  display.println(
+    "Zona D"
+  );
+
+
+  display.setTextSize(1);
+
+  display.println(
+    "Cetis 117"
+  );
+
+
+  display.println();
+
+
+  display.println(
+    "Codigo de Reembolso:"
+  );
+
+
+  display.println();
+
+
+  display.setTextSize(2);
+
+  display.println(
+    codigo
+  );
+
+
+  display.display();
+}
+
+
+// ======================================================
+// EXTRAER FICHA DEL JSON
+// ======================================================
+
+String extraerFicha(
+  String json
+) {
+
+  int posicionFicha =
+    json.indexOf(
+      "\"Ficha\""
+    );
+
+
+  if (
+    posicionFicha == -1
+  ) {
+
+    return "";
+  }
+
+
+  int dosPuntos =
+    json.indexOf(
+      ":",
+      posicionFicha
+    );
+
+
+  int primeraComilla =
+    json.indexOf(
+      "\"",
+      dosPuntos
+    );
+
+
+  int segundaComilla =
+    json.indexOf(
+      "\"",
+      primeraComilla + 1
+    );
+
+
+  if (
+    primeraComilla == -1 ||
+    segundaComilla == -1
+  ) {
+
+    return "";
+  }
+
+
+  return json.substring(
+    primeraComilla + 1,
+    segundaComilla
+  );
+}
+
+
+// ======================================================
+// CONSUMIR SERVICIO REST
+// ======================================================
+
+String venderFicha() {
+
+  if (
+    WiFi.status()
+    != WL_CONNECTED
+  ) {
+
+    Serial.println(
+      "WiFi desconectado"
+    );
+
+    return "";
+  }
+
+
+  HTTPClient http;
+
+
+  String url =
+    "https://fichaszd-482614074090.us-central1.run.app/fichas/vender";
+
+
+  Serial.println(
+    "Consumiendo servicio de venta..."
+  );
+
+
+  http.begin(
+    url
+  );
+
+
+  // Tiempo máximo de espera:
+  // 30 segundos
+
+  http.setTimeout(
+    30000
+  );
+
+
+  http.addHeader(
+    "Content-Type",
+    "application/json"
+  );
+
+
+  String body =
+    "{\"name\":\"Developer\"}";
+
+
+  int httpCode =
+    http.POST(
+      body
+    );
+
+
+  String response = "";
+
+
+  if (
+    httpCode > 0
+  ) {
+
+    response =
+      http.getString();
+
+
+    Serial.print(
+      "Codigo HTTP: "
+    );
+
+
+    Serial.println(
+      httpCode
+    );
+
+
+    Serial.println(
+      "Respuesta:"
+    );
+
+
+    Serial.println(
+      response
+    );
+  }
+
+  else {
+
+    Serial.print(
+      "Error HTTP: "
+    );
+
+
+    Serial.println(
+      http.errorToString(
+        httpCode
+      )
+    );
+  }
+
+
+  http.end();
+
+
+  return response;
+}
+
+
+// ======================================================
+// SETUP
+// ======================================================
+
+void setup() {
+
+  Serial.begin(
+    115200
+  );
+
+
+  randomSeed(
+    esp_random()
+  );
+
+
+  inicializarPantalla();
+
+
+  conectarWiFi();
+
+
+  inicializarMonedero();
+
+
+  mostrarPantallaInicial();
+}
+
+
+// ======================================================
+// LOOP
+// ======================================================
+
+void loop() {
+
+  static unsigned long pulsosAnteriores = 0;
+
+  static bool procesandoVenta = false;
+
+
+  unsigned long pulsosActuales =
+    pulsos;
+
+
+  // ==================================================
+  // MOSTRANDO ERROR / CÓDIGO DE REEMBOLSO
+  // ==================================================
+
+  if (
+    mostrandoError
+  ) {
+
+    // Volvemos a leer el saldo actual.
+    //
+    // Puede haber cambiado porque las interrupciones
+    // siguen contando monedas aunque estemos mostrando
+    // el código de reembolso.
+
+    pulsosActuales =
+      pulsos;
+
+
+    // ==================================================
+    // ENTRÓ UNA NUEVA MONEDA DURANTE EL ERROR
+    // ==================================================
+    //
+    // saldoBaseError contiene el saldo que quedó
+    // después de descontar los $10.
+    //
+    // Si pulsos cambia significa que entró
+    // dinero adicional.
+    // ==================================================
+
+    if (
+      pulsosActuales
+      != saldoBaseError
+    ) {
+
+      mostrandoError =
+        false;
+
+
+      pulsosAnteriores =
+        pulsosActuales;
+
+
+      Serial.println(
+        "Nueva moneda detectada durante reembolso."
+      );
+
+
+      Serial.print(
+        "Saldo actual: $"
+      );
+
+
+      Serial.println(
+        pulsosActuales
+      );
+
+
+      mostrarSaldo(
+        pulsosActuales
+      );
+
+
+      return;
+    }
+
+
+    // ==================================================
+    // PASARON 20 SEGUNDOS
+    // ==================================================
+
+    if (
+      millis() - inicioPantallaError
+      >= TIEMPO_ERROR_MS
+    ) {
+
+      mostrandoError =
+        false;
+
+
+      pulsosActuales =
+        pulsos;
+
+
+      pulsosAnteriores =
+        pulsosActuales;
+
+
+      Serial.println(
+        "Pantalla de reembolso finalizada."
+      );
+
+
+      // --------------------------------------------------
+      // HAY SALDO A FAVOR
+      // --------------------------------------------------
+
+      if (
+        pulsosActuales > 0
+      ) {
+
+        Serial.print(
+          "Saldo a favor: $"
+        );
+
+
+        Serial.println(
+          pulsosActuales
+        );
+
+
+        mostrarSaldo(
+          pulsosActuales
+        );
+      }
+
+
+      // --------------------------------------------------
+      // NO HAY SALDO
+      // --------------------------------------------------
+
+      else {
+
+        mostrarPantallaInicial();
+
+
+        Serial.println(
+          "Saldo: $0"
+        );
+      }
+
+
+      return;
+    }
+
+
+    // Mientras mostramos el código de reembolso
+    // no ejecutamos ninguna otra lógica.
+
+    return;
+  }
+
+
+  // ==================================================
+  // ESTAMOS MOSTRANDO UNA FICHA EXITOSA
+  // ==================================================
+
+  if (
+    mostrandoFicha
+  ) {
+
+    pulsosActuales =
+      pulsos;
+
+
+    // ==================================================
+    // ENTRÓ UNA NUEVA MONEDA
+    // ==================================================
+
+    if (
+      pulsosActuales
+      != saldoBaseFicha
+    ) {
+
+      mostrandoFicha =
+        false;
+
+
+      pulsosAnteriores =
+        pulsosActuales;
+
+
+      Serial.println(
+        "Nueva moneda detectada."
+      );
+
+
+      Serial.print(
+        "Saldo actual: $"
+      );
+
+
+      Serial.println(
+        pulsosActuales
+      );
+
+
+      mostrarSaldo(
+        pulsosActuales
+      );
+
+
+      return;
+    }
+
+
+    // ==================================================
+    // PASARON 20 SEGUNDOS
+    // ==================================================
+
+    if (
+      millis() - inicioPantallaFicha
+      >= TIEMPO_FICHA_MS
+    ) {
+
+      mostrandoFicha =
+        false;
+
+
+      pulsosActuales =
+        pulsos;
+
+
+      pulsosAnteriores =
+        pulsosActuales;
+
+
+      Serial.println(
+        "Ficha finalizada."
+      );
+
+
+      // --------------------------------------------------
+      // HAY SALDO A FAVOR
+      // --------------------------------------------------
+
+      if (
+        pulsosActuales > 0
+      ) {
+
+        Serial.print(
+          "Saldo a favor: $"
+        );
+
+
+        Serial.println(
+          pulsosActuales
+        );
+
+
+        mostrarSaldo(
+          pulsosActuales
+        );
+      }
+
+
+      // --------------------------------------------------
+      // NO HAY SALDO
+      // --------------------------------------------------
+
+      else {
+
+        mostrarPantallaInicial();
+
+
+        Serial.println(
+          "Saldo: $0"
+        );
+      }
+
+
+      return;
+    }
+
+
+    return;
+  }
+
+
+  // ==================================================
+  // ACTUALIZAR SALDO NORMAL
+  // ==================================================
+
+  if (
+    pulsosActuales
+    != pulsosAnteriores
+  ) {
+
+    pulsosAnteriores =
+      pulsosActuales;
+
+
+    Serial.print(
+      "Saldo acumulado: $"
+    );
+
+
+    Serial.println(
+      pulsosActuales
+    );
+
+
+    mostrarSaldo(
+      pulsosActuales
+    );
+  }
+
+
+  // ==================================================
+  // GENERAR FICHA CUANDO SALDO >= $10
+  // ==================================================
+
+  if (
+    pulsosActuales >= PRECIO_FICHA
+    &&
+    !procesandoVenta
+  ) {
+
+    procesandoVenta =
+      true;
+
+
+    Serial.print(
+      "Saldo disponible: $"
+    );
+
+
+    Serial.println(
+      pulsosActuales
+    );
+
+
+    Serial.println(
+      "Generando ficha..."
+    );
+
+
+    // ==================================================
+    // MOSTRAR MENSAJE DE ESPERA
+    // ==================================================
+
+    mostrarGenerandoFicha();
+
+
+    // ==================================================
+    // CONSUMIR SERVICIO UNA SOLA VEZ
+    // ==================================================
+
+    String respuesta =
+      venderFicha();
+
+
+    Serial.println(
+      "Respuesta servicio:"
+    );
+
+
+    Serial.println(
+      respuesta
+    );
+
+
+    // ==================================================
+    // EXTRAER FICHA
+    // ==================================================
+
+    String ficha =
+      extraerFicha(
+        respuesta
+      );
+
+
+    // ==================================================
+    // VENTA EXITOSA
+    // ==================================================
+
+    if (
+      ficha != ""
+    ) {
+
+      Serial.print(
+        "Ficha generada: "
+      );
+
+
+      Serial.println(
+        ficha
+      );
+
+
+      // ==================================================
+      // DESCONTAR SOLAMENTE $10
+      // ==================================================
+
+      noInterrupts();
+
+
+      if (
+        pulsos >= PRECIO_FICHA
+      ) {
+
+        pulsos =
+          pulsos - PRECIO_FICHA;
+      }
+
+      else {
+
+        pulsos = 0;
+      }
+
+
+      // Guardamos el saldo restante
+      // justo después de la venta.
+
+      saldoBaseFicha =
+        pulsos;
+
+
+      interrupts();
+
+
+      pulsosAnteriores =
+        saldoBaseFicha;
+
+
+      Serial.print(
+        "Saldo restante: $"
+      );
+
+
+      Serial.println(
+        saldoBaseFicha
+      );
+
+
+      // ==================================================
+      // MOSTRAR FICHA
+      // ==================================================
+
+      mostrarFicha(
+        ficha
+      );
+
+
+      mostrandoFicha =
+        true;
+
+
+      inicioPantallaFicha =
+        millis();
+
+
+      procesandoVenta =
+        false;
+
+
+      return;
+    }
+
+
+    // ==================================================
+    // ERROR AL GENERAR FICHA
+    // ==================================================
+    //
+    // IMPORTANTE:
+    //
+    // Los primeros $10 quedan asociados al
+    // código de reembolso.
+    //
+    // Solamente conservamos como saldo
+    // cualquier cantidad superior a $10.
+    //
+    // Ejemplo:
+    //
+    // $11
+    //
+    // Código reembolso -> $10
+    // Saldo a favor    -> $1
+    //
+    // ==================================================
+
+    Serial.println(
+      "Error al generar ficha"
+    );
+
+
+    // ==================================================
+    // DESCONTAR LOS $10 DEL CÓDIGO DE REEMBOLSO
+    // ==================================================
+
+    noInterrupts();
+
+
+    if (
+      pulsos >= PRECIO_FICHA
+    ) {
+
+      pulsos =
+        pulsos - PRECIO_FICHA;
+    }
+
+    else {
+
+      pulsos = 0;
+    }
+
+
+    // Guardamos el saldo restante.
+
+    saldoBaseError =
+      pulsos;
+
+
+    interrupts();
+
+
+    pulsosAnteriores =
+      saldoBaseError;
+
+
+    Serial.print(
+      "Saldo restante despues del error: $"
+    );
+
+
+    Serial.println(
+      saldoBaseError
+    );
+
+
+    // ==================================================
+    // GENERAR CÓDIGO DE REEMBOLSO
+    // ==================================================
+
+    String codigoReembolso =
+      generarCodigoReembolso();
+
+
+    Serial.print(
+      "Codigo reembolso: "
+    );
+
+
+    Serial.println(
+      codigoReembolso
+    );
+
+
+    // ==================================================
+    // MOSTRAR CÓDIGO
+    // ==================================================
+
+    mostrarErrorReembolso(
+      codigoReembolso
+    );
+
+
+    mostrandoError =
+      true;
+
+
+    inicioPantallaError =
+      millis();
+
+
+    procesandoVenta =
+      false;
+
+
+    return;
+  }
+}
