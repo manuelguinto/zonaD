@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutionException;
 import org.springframework.stereotype.Service;
 
 import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.Query;
@@ -234,4 +235,65 @@ public class FichaService {
         batch.commit().get();
     }
 
+    // ============================================================
+// LIMPIAR FICHAS VENDIDAS
+// ============================================================
+//
+// Elimina de Firestore todos los documentos de ZonaDFichas
+// cuyo campo:
+//
+// Estado = "VENDIDA"
+//
+// Se procesan en bloques de máximo 500 documentos.
+//
+// Devuelve la cantidad total de documentos eliminados.
+// ============================================================
+
+public int limpiarFichasVendidas() throws Exception {
+
+    int totalEliminadas = 0;
+
+    while (true) {
+
+        QuerySnapshot snapshot =
+                db
+                        .collection(COLLECTION)
+                        .whereEqualTo(
+                                "Estado",
+                                "VENDIDA"
+                        )
+                        .limit(500)
+                        .get()
+                        .get();
+
+
+        // Ya no existen fichas vendidas
+        if (snapshot.isEmpty()) {
+            break;
+        }
+
+
+        WriteBatch batch =
+                db.batch();
+
+
+        for (
+                DocumentSnapshot documento :
+                snapshot.getDocuments()
+        ) {
+
+            batch.delete(
+                    documento.getReference()
+            );
+
+            totalEliminadas++;
+        }
+
+
+        batch.commit().get();
+    }
+
+
+    return totalEliminadas;
+}
 }

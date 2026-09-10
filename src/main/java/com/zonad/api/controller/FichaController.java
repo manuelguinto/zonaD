@@ -1,5 +1,6 @@
 package com.zonad.api.controller;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -134,4 +135,81 @@ public class FichaController {
                     );
         }
     }
+
+    // ============================================================
+// LIMPIAR FICHAS VENDIDAS
+// ============================================================
+//
+// POST /fichas/limpiar
+//
+// Elimina todas las fichas con:
+//
+// Estado = "VENDIDA"
+//
+// ============================================================
+
+@PostMapping(
+        value = "/limpiar",
+        produces = MediaType.APPLICATION_JSON_VALUE
+)
+public ResponseEntity<Map<String, Object>>
+limpiarFichasVendidas() {
+
+    try {
+
+        int eliminadas =
+                fichaService
+                        .limpiarFichasVendidas();
+
+
+        Map<String, Object> respuesta =
+                new HashMap<>();
+
+
+        respuesta.put(
+                "ok",
+                true
+        );
+
+        respuesta.put(
+                "eliminadas",
+                eliminadas
+        );
+
+        respuesta.put(
+                "mensaje",
+                "Limpieza completada"
+        );
+
+
+        return ResponseEntity.ok(
+                respuesta
+        );
+
+
+    } catch (Exception e) {
+
+        e.printStackTrace();
+
+
+        Map<String, Object> respuesta =
+                new HashMap<>();
+
+
+        respuesta.put(
+                "ok",
+                false
+        );
+
+        respuesta.put(
+                "mensaje",
+                e.getMessage()
+        );
+
+
+        return ResponseEntity
+                .internalServerError()
+                .body(respuesta);
+    }
+        }
 }
