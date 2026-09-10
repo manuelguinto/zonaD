@@ -1,8 +1,14 @@
 package com.zonad.api.service;
 
+import java.security.SecureRandom;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import org.springframework.stereotype.Service;
@@ -13,6 +19,8 @@ import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.Query;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
 import com.google.cloud.firestore.QuerySnapshot;
+import com.google.cloud.firestore.WriteBatch;
+
 
 @Service
 public class FichaService {
@@ -20,8 +28,11 @@ public class FichaService {
     private static final String COLLECTION = "ZonaDFichas";
     private static final String NUEVA = "NUEVA";
     private static final String VENDIDA = "VENDIDA";
+    private static final int CANTIDAD_FICHAS = 10;
 
     private final Firestore db;
+
+    private final SecureRandom random = new SecureRandom();
 
     public FichaService(Firestore db) {
         this.db = db;
@@ -58,4 +69,169 @@ public class FichaService {
             return respuesta;
         }).get();
     }
+
+    // ============================================================
+    // GENERAR 500 FICHAS
+    // ============================================================
+    //
+    // Las fichas son únicas únicamente dentro de esta ejecución.
+    //
+    // No se consulta Firestore para validar fichas anteriores.
+    //
+    // ============================================================
+
+    public List<String> generarFichas() throws Exception {
+
+        Set<String> fichasGeneradas =
+                generarClavesUnicas();
+
+
+        guardarFichas(
+                fichasGeneradas
+        );
+
+
+        return new ArrayList<>(
+                fichasGeneradas
+        );
+    }
+
+
+    // ============================================================
+    // GENERAR CLAVES ÚNICAS
+    // ============================================================
+    //
+    // LinkedHashSet impide duplicados dentro de las 500
+    // claves generadas en esta ejecución.
+    //
+    // Ejemplo:
+    //
+    // 211210
+    // 540381
+    // 774920
+    //
+    // ============================================================
+
+    private Set<String> generarClavesUnicas() {
+
+        Set<String> fichas =
+                new LinkedHashSet<>();
+
+
+        while (
+                fichas.size() < CANTIDAD_FICHAS
+        ) {
+
+            fichas.add(
+                    generarFichaAleatoria()
+            );
+        }
+
+
+        return fichas;
+    }
+
+
+    // ============================================================
+    // GENERAR FICHA DE 6 DÍGITOS
+    // ============================================================
+    //
+    // Rango:
+    //
+    // 100000 - 999999
+    //
+    // ============================================================
+
+    private String generarFichaAleatoria() {
+
+        int numero =
+                100000
+                + random.nextInt(900000);
+
+
+        return String.valueOf(
+                numero
+        );
+    }
+
+
+    // ============================================================
+    // GUARDAR EN FIRESTORE
+    // ============================================================
+    //
+    // Se utilizan exactamente 500 escrituras,
+    // por lo que cabe en un único WriteBatch.
+    //
+    // ============================================================
+
+    private void guardarFichas(
+            Set<String> fichas
+    ) throws Exception {
+
+        WriteBatch batch =
+                db.batch();
+
+
+        String nombreCarga =
+                LocalDate.now()
+                        .format(
+                                DateTimeFormatter.ofPattern(
+                                        "dd-MM-yyyy"
+                                )
+                        );
+
+
+        for (
+                String ficha : fichas
+        ) {
+
+            Map<String, Object> datos =
+                    new HashMap<>();
+
+
+            datos.put(
+                    "Estado",
+                    "NUEVA"
+            );
+
+
+            datos.put(
+                    "FechaVenta",
+                    ""
+            );
+
+
+            datos.put(
+                    "Ficha",
+                    ficha
+            );
+
+
+            datos.put(
+                    "NombreCarga",
+                    nombreCarga
+            );
+
+
+            /*
+             * Utilizamos un ID automático de Firestore.
+             *
+             * Esto es importante porque tú no quieres
+             * validar contra fichas históricas.
+             */
+
+            DocumentReference documento =
+                    db.collection(COLLECTION).document();
+
+
+            batch.set(
+                    documento,
+                    datos
+            );
+        }
+
+
+        batch.commit().get();
+    }
+
 }

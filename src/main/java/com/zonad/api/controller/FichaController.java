@@ -1,13 +1,16 @@
 package com.zonad.api.controller;
 
+import java.util.List;
 import java.util.Map;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.zonad.api.service.FichaService;
+
 
 @RestController
 @RequestMapping("/fichas")
@@ -68,6 +71,67 @@ public class FichaController {
                                     : causa.getMessage()
                     )
             );
+        }
+    }
+
+    // ============================================================
+    // GENERAR 1000 FICHAS
+    // ============================================================
+    //
+    // POST /fichas/generar
+    //
+    // Respuesta:
+    //
+    // 211210,584921,740163,193552,...
+    //
+    // ============================================================
+
+    @PostMapping(
+            value = "/generar",
+            produces = MediaType.TEXT_PLAIN_VALUE
+    )
+    @SuppressWarnings("CallToPrintStackTrace")
+    public ResponseEntity<String> generarFichas() {
+
+        try {
+
+            List<String> fichas =
+                    fichaService.generarFichas();
+
+
+            /*
+             * Convertimos:
+             *
+             * ["211210", "584921", "740163"]
+             *
+             * en:
+             *
+             * 211210,584921,740163
+             */
+
+            String respuesta =
+                    String.join(
+                            ",",
+                            fichas
+                    );
+
+
+            return ResponseEntity.ok(
+                    respuesta
+            );
+
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+
+            return ResponseEntity
+                    .internalServerError()
+                    .body(
+                            "Error al generar fichas: "
+                            + e.getMessage()
+                    );
         }
     }
 }
