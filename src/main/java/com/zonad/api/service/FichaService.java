@@ -334,11 +334,8 @@ public class FichaService {
 
         QuerySnapshot snapshot =
                 db
-                        .collection("fichas")
-                        .whereEqualTo(
-                                "disponible",
-                                true
-                        )
+                        .collection(COLLECTION)
+                        .whereEqualTo("Estado", NUEVA)
                         .get()
                         .get();
 
@@ -350,11 +347,8 @@ public class FichaService {
 
         QuerySnapshot snapshot =
                 db
-                        .collection("fichas")
-                        .whereEqualTo(
-                                "disponible",
-                                false
-                        )
+                        .collection(COLLECTION)
+                        .whereEqualTo("Estado", VENDIDA)
                         .get()
                         .get();
 
