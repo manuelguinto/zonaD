@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.zonad.api.service.FichaService;
 
+import java.util.Map;
+import org.springframework.web.bind.annotation.GetMapping;
+
 
 @RestController
 @RequestMapping("/fichas")
@@ -413,5 +416,45 @@ public class FichaController {
 
 
         return csv.toString();
-        }    
+        }  
+
+        // ============================================================
+        // CONSULTAR CANTIDAD DE FICHAS NUEVAS Y VENDIDAS
+        // ============================================================
+        //
+        // GET /fichas/consulta
+        //
+        // Respuesta:
+        // {
+        //   "Nuevas": 320,
+        //   "Vendidas": 180
+        // }
+        //
+        // ============================================================
+
+        @GetMapping(
+                value = "/consulta",
+                produces = MediaType.APPLICATION_JSON_VALUE
+        )
+        @SuppressWarnings("CallToPrintStackTrace")
+        public ResponseEntity<Map<String, Long>> consultaFichas() {
+
+        try {
+
+                Map<String, Long> respuesta =
+                        fichaService.consultarResumenFichas();
+
+                return ResponseEntity.ok(
+                        respuesta
+                );
+
+        } catch (Exception e) {
+
+                e.printStackTrace();
+
+                return ResponseEntity
+                        .internalServerError()
+                        .build();
+        }
+        }  
 }

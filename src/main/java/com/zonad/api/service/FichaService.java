@@ -23,6 +23,8 @@ import com.google.cloud.firestore.QuerySnapshot;
 import com.google.cloud.firestore.WriteBatch;
 
 
+
+
 @Service
 public class FichaService {
 
@@ -293,5 +295,69 @@ public class FichaService {
 
 
         return totalEliminadas;
+    }
+
+    // ============================================================
+    // CONSULTAR RESUMEN DE FICHAS
+    // ============================================================
+
+    public Map<String, Long> consultarResumenFichas()
+            throws Exception {
+
+        long nuevas =
+                contarFichasNuevas();
+
+        long vendidas =
+                contarFichasVendidas();
+
+
+        Map<String, Long> respuesta =
+                new HashMap<>();
+
+
+        respuesta.put(
+                "Nuevas",
+                nuevas
+        );
+
+        respuesta.put(
+                "Vendidas",
+                vendidas
+        );
+
+
+        return respuesta;
+    }
+
+    private long contarFichasNuevas()
+        throws Exception {
+
+        QuerySnapshot snapshot =
+                db
+                        .collection("fichas")
+                        .whereEqualTo(
+                                "disponible",
+                                true
+                        )
+                        .get()
+                        .get();
+
+        return snapshot.size();
+    }
+
+    private long contarFichasVendidas()
+        throws Exception {
+
+        QuerySnapshot snapshot =
+                db
+                        .collection("fichas")
+                        .whereEqualTo(
+                                "disponible",
+                                false
+                        )
+                        .get()
+                        .get();
+
+        return snapshot.size();
     }
 }
