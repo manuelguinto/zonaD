@@ -329,29 +329,57 @@ public class FichaService {
         return respuesta;
     }
 
-    private long contarFichasNuevas()
-        throws Exception {
+        // ============================================================
+        // CONTAR FICHAS NUEVAS
+        // ============================================================
 
-        QuerySnapshot snapshot =
-                db
-                        .collection(COLLECTION)
-                        .whereEqualTo("Estado", NUEVA)
-                        .get()
-                        .get();
+        private long contarFichasNuevas()
+                throws Exception {
 
-        return snapshot.size();
-    }
+                Query query =
+                        db.collection(COLLECTION)
+                                .whereEqualTo(
+                                        "Estado",
+                                        NUEVA
+                                );
 
-    private long contarFichasVendidas()
-        throws Exception {
+                QuerySnapshot snapshot =
+                        query.get().get();
 
-        QuerySnapshot snapshot =
-                db
-                        .collection(COLLECTION)
-                        .whereEqualTo("Estado", VENDIDA)
-                        .get()
-                        .get();
 
-        return snapshot.size();
-    }
+                System.out.println(
+                        "Fichas NUEVAS encontradas: "
+                                + snapshot.size()
+                );
+
+
+                return snapshot.size();
+        }
+
+        // ============================================================
+        // CONTAR FICHAS VENDIDAS
+        // ============================================================
+
+        private long contarFichasVendidas()
+                throws Exception {
+
+                Query query =
+                        db.collection(COLLECTION)
+                                .whereEqualTo(
+                                        "Estado",
+                                        VENDIDA
+                                );
+
+                QuerySnapshot snapshot =
+                        query.get().get();
+
+
+                System.out.println(
+                        "Fichas VENDIDAS encontradas: "
+                                + snapshot.size()
+                );
+
+
+                return snapshot.size();
+        }
 }
