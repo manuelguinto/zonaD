@@ -5,7 +5,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,7 +29,6 @@ public class FichaService {
     private static final String COLLECTION = "ZonaDFichas";
     private static final String NUEVA = "NUEVA";
     private static final String VENDIDA = "VENDIDA";
-    private static final int CANTIDAD_FICHAS = 10;
 
     private final Firestore db;
 
@@ -72,19 +71,27 @@ public class FichaService {
     }
 
     // ============================================================
-    // GENERAR 500 FICHAS
+    // GENERAR LA CANTIDAD DE FICHAS SOLICITADA
     // ============================================================
     //
-    // Las fichas son únicas únicamente dentro de esta ejecución.
+    // numFichas ya no es una variable global.
     //
-    // No se consulta Firestore para validar fichas anteriores.
+    // Ejemplo:
+    //
+    // generarFichas(10)
+    //
+    // genera exactamente 10 fichas.
     //
     // ============================================================
 
-    public List<String> generarFichas() throws Exception {
+    public List<String> generarFichas(
+            int numFichas
+    ) throws Exception {
 
         Set<String> fichasGeneradas =
-                generarClavesUnicas();
+                generarClavesUnicas(
+                        numFichas
+                );
 
 
         guardarFichas(
@@ -98,33 +105,24 @@ public class FichaService {
     }
 
 
-    // ============================================================
-    // GENERAR CLAVES ÚNICAS
-    // ============================================================
-    //
-    // LinkedHashSet impide duplicados dentro de las 500
-    // claves generadas en esta ejecución.
-    //
-    // Ejemplo:
-    //
-    // 211210
-    // 540381
-    // 774920
-    //
-    // ============================================================
-
-    private Set<String> generarClavesUnicas() {
+    private Set<String> generarClavesUnicas(
+            int numFichas
+    ) {
 
         Set<String> fichas =
-                new LinkedHashSet<>();
+                new HashSet<>();
 
 
         while (
-                fichas.size() < CANTIDAD_FICHAS
+                fichas.size() < numFichas
         ) {
 
+            String ficha =
+                    generarClave();
+
+
             fichas.add(
-                    generarFichaAleatoria()
+                    ficha
             );
         }
 
@@ -143,7 +141,7 @@ public class FichaService {
     //
     // ============================================================
 
-    private String generarFichaAleatoria() {
+    private String generarClave() {
 
         int numero =
                 100000
@@ -236,64 +234,64 @@ public class FichaService {
     }
 
     // ============================================================
-// LIMPIAR FICHAS VENDIDAS
-// ============================================================
-//
-// Elimina de Firestore todos los documentos de ZonaDFichas
-// cuyo campo:
-//
-// Estado = "VENDIDA"
-//
-// Se procesan en bloques de máximo 500 documentos.
-//
-// Devuelve la cantidad total de documentos eliminados.
-// ============================================================
+    // LIMPIAR FICHAS VENDIDAS
+    // ============================================================
+    //
+    // Elimina de Firestore todos los documentos de ZonaDFichas
+    // cuyo campo:
+    //
+    // Estado = "VENDIDA"
+    //
+    // Se procesan en bloques de máximo 500 documentos.
+    //
+    // Devuelve la cantidad total de documentos eliminados.
+    // ============================================================
 
-public int limpiarFichasVendidas() throws Exception {
+    public int limpiarFichasVendidas() throws Exception {
 
-    int totalEliminadas = 0;
+        int totalEliminadas = 0;
 
-    while (true) {
+        while (true) {
 
-        QuerySnapshot snapshot =
-                db
-                        .collection(COLLECTION)
-                        .whereEqualTo(
-                                "Estado",
-                                "VENDIDA"
-                        )
-                        .limit(500)
-                        .get()
-                        .get();
+            QuerySnapshot snapshot =
+                    db
+                            .collection(COLLECTION)
+                            .whereEqualTo(
+                                    "Estado",
+                                    "VENDIDA"
+                            )
+                            .limit(500)
+                            .get()
+                            .get();
 
 
-        // Ya no existen fichas vendidas
-        if (snapshot.isEmpty()) {
-            break;
+            // Ya no existen fichas vendidas
+            if (snapshot.isEmpty()) {
+                break;
+            }
+
+
+            WriteBatch batch =
+                    db.batch();
+
+
+            for (
+                    DocumentSnapshot documento :
+                    snapshot.getDocuments()
+            ) {
+
+                batch.delete(
+                        documento.getReference()
+                );
+
+                totalEliminadas++;
+            }
+
+
+            batch.commit().get();
         }
 
 
-        WriteBatch batch =
-                db.batch();
-
-
-        for (
-                DocumentSnapshot documento :
-                snapshot.getDocuments()
-        ) {
-
-            batch.delete(
-                    documento.getReference()
-            );
-
-            totalEliminadas++;
-        }
-
-
-        batch.commit().get();
+        return totalEliminadas;
     }
-
-
-    return totalEliminadas;
-}
 }
