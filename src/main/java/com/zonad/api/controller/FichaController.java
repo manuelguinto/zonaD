@@ -18,10 +18,15 @@ import com.zonad.api.service.FichaService;
 
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
-
+import org.springframework.web.bind.annotation.CrossOrigin;
 
 @RestController
 @RequestMapping("/fichas")
+@CrossOrigin(origins = {
+        "http://localhost:5173",
+        "https://zonad-5b91a.web.app",
+        "https://zonad-5b91a.firebaseapp.com"
+})
 public class FichaController {
 
     private final FichaService fichaService;
