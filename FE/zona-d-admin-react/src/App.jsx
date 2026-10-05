@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   consultarFichas,
   generarFichas,
-  limpiarVendidas
+  limpiarVendidas,
+  venderFicha
 } from "./api";
 
 function SummaryCard({ title, value, subtitle, accent }) {
@@ -53,6 +54,8 @@ export default function App() {
   const [cargandoConsulta, setCargandoConsulta] = useState(false);
   const [generando, setGenerando] = useState(false);
   const [limpiando, setLimpiando] = useState(false);
+  const [vendiendo, setVendiendo] = useState(false);
+  const [fichaVendida, setFichaVendida] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
 
@@ -104,6 +107,26 @@ export default function App() {
       setError(e.message);
     } finally {
       setGenerando(false);
+    }
+  }
+
+  async function handleVender() {
+    setVendiendo(true);
+    setError("");
+    setMensaje("");
+    setFichaVendida("");
+
+    try {
+      const ficha = await venderFicha();
+
+      setFichaVendida(ficha);
+      setMensaje("La ficha se marcó como vendida correctamente.");
+
+      await cargarResumen();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setVendiendo(false);
     }
   }
 
@@ -256,6 +279,56 @@ export default function App() {
               {generando ? "Generando..." : "Generar y descargar CSV"}
             </button>
           </form>
+        </section>
+
+        <section className="mt-5 overflow-hidden rounded-3xl border border-[#eadfd2] bg-white shadow-[0_10px_30px_rgba(93,54,37,0.06)]">
+          <div className="border-b border-[#f0e6dc] bg-[#fffaf4] px-6 py-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff2d6] text-xl">
+                💳
+              </div>
+
+              <div>
+                <h2 className="text-lg font-black text-[#3b2c2d]">
+                  Vender ficha manualmente
+                </h2>
+                <p className="text-sm text-[#8f7d7e]">
+                  Obtiene una ficha disponible y la registra como vendida.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 p-6 md:grid-cols-[1fr_auto] md:items-center">
+            <div>
+              {fichaVendida ? (
+                <div className="rounded-2xl border border-[#e4c36d] bg-[#fff8df] px-5 py-4">
+                  <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#9a6a12]">
+                    Ficha vendida
+                  </p>
+                  <p className="mt-2 font-mono text-3xl font-black tracking-[0.16em] text-[#3b2c2d]">
+                    {fichaVendida}
+                  </p>
+                  <p className="mt-2 text-sm text-[#7f6a4a]">
+                    Puedes compartir este código con el alumno.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-[#8f7d7e]">
+                  Úsalo cuando la expendedora haya cobrado pero no haya podido mostrar la ficha.
+                </p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleVender}
+              disabled={vendiendo || resumen.Nuevas <= 0}
+              className="inline-flex h-12 items-center justify-center rounded-xl bg-[#e4a640] px-6 text-sm font-extrabold text-[#3b2c2d] shadow-[0_8px_20px_rgba(228,166,64,0.24)] transition hover:-translate-y-0.5 hover:bg-[#d99a32] disabled:cursor-not-allowed disabled:bg-[#e8dcc8] disabled:text-[#9f9485] disabled:shadow-none"
+            >
+              {vendiendo ? "Vendiendo..." : "Vender una ficha"}
+            </button>
+          </div>
         </section>
 
         <section className="mt-5 overflow-hidden rounded-3xl border border-[#eadfd2] bg-white shadow-[0_10px_30px_rgba(93,54,37,0.06)]">

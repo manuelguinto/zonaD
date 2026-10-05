@@ -11,6 +11,9 @@ const GENERAR_PATH =
 const LIMPIAR_PATH =
   import.meta.env.VITE_LIMPIAR_PATH || "/fichas/limpiar";
 
+const VENDER_PATH =
+  import.meta.env.VITE_VENDER_PATH || "/fichas/vender";
+
 const LIMPIAR_METHOD =
   import.meta.env.VITE_LIMPIAR_METHOD || "DELETE";
 
@@ -85,6 +88,29 @@ export async function generarFichas(numFichas) {
   URL.revokeObjectURL(blobUrl);
 
   return nombreArchivo;
+}
+
+
+export async function venderFicha() {
+  const response = await fetch(buildUrl(VENDER_PATH), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ name: "Developer" })
+  });
+
+  await validarRespuesta(response);
+
+  const datos = await response.json();
+  const ficha = datos.Ficha ?? datos.ficha;
+
+  if (!ficha) {
+    throw new Error("El servicio respondió correctamente, pero no devolvió una ficha.");
+  }
+
+  return String(ficha);
 }
 
 export async function limpiarVendidas() {
