@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 
@@ -12,11 +13,19 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 
-#define PIN_MONEDERO 18
+#define PIN_MONEDERO 19
 
-#define OLED_SDA 21
-#define OLED_SCL 22
+#define I2C_SDA 25
+#define I2C_SCL 26
+
 #define OLED_ADDRESS 0x3C
+
+// Dirección típica del módulo I2C del LCD.
+// Si no funciona, después podemos verificar si es 0x3F.
+#define LCD_ADDRESS 0x27
+
+#define LCD_COLUMNAS 16
+#define LCD_FILAS 2
 
 const unsigned long PRECIO_FICHA = 10;
 
@@ -25,14 +34,12 @@ const unsigned long PRECIO_FICHA = 10;
 // CONFIGURACIÓN DEL MONEDERO
 // ======================================================
 //
-// El monedero genera:
 // $1  = 1 pulso
 // $2  = 2 pulsos
 // $5  = 5 pulsos
 // $10 = 10 pulsos
 //
-// Se utiliza un filtro de 70 ms para evitar
-// rebotes o pulsos duplicados.
+// El filtro de 70 ms evita rebotes o pulsos duplicados.
 // ======================================================
 
 volatile unsigned long pulsos = 0;
@@ -45,14 +52,14 @@ const unsigned long FILTRO_PULSO_US = 70000;
 // CONFIGURACIÓN WIFI
 // ======================================================
 
-const char* ssid = "Zona-D";
+const char* ssid = "Starlink D3";
 
-// Coloca aquí tu contraseña WiFi
+// Coloca aquí tu contraseña actual.
 const char* password = "147896325d";
 
 
 // ======================================================
-// CONFIGURACIÓN DEL SERVICIO REST
+// CONFIGURACIÓN REST
 // ======================================================
 
 const char* URL_VENTA =
@@ -65,28 +72,18 @@ const unsigned long HTTP_TIMEOUT_MS = 30000;
 // TIEMPOS DE PANTALLA
 // ======================================================
 //
-// Tanto una ficha generada como un código de reembolso
-// permanecen visibles durante 20 segundos.
+// La ficha y el código de reembolso permanecen
+// visibles durante 20 segundos.
 //
-// Si entra una nueva moneda antes de ese tiempo,
-// inmediatamente se vuelve a mostrar el saldo.
+// Si entra una moneda antes, se regresa inmediatamente
+// a la pantalla de saldo.
 // ======================================================
 
 const unsigned long TIEMPO_MENSAJE_MS = 20000;
 
 
 // ======================================================
-// ESTADOS DE LA PANTALLA
-// ======================================================
-//
-// NORMAL:
-//   Muestra el saldo y permite generar una ficha.
-//
-// FICHA:
-//   Muestra la ficha generada.
-//
-// REEMBOLSO:
-//   Muestra el código generado cuando falla la venta.
+// ESTADOS DE LA APLICACIÓN
 // ======================================================
 
 enum EstadoPantalla {
@@ -99,15 +96,16 @@ EstadoPantalla estadoPantalla = ESTADO_NORMAL;
 
 unsigned long inicioEstadoPantalla = 0;
 
-// Saldo existente cuando comenzó una pantalla temporal.
-// Permite detectar si entró una moneda nueva.
+// Saldo que existía al mostrar una ficha o reembolso.
+// Si cambia, significa que entró una nueva moneda.
 unsigned long saldoBasePantalla = 0;
 
 
 // ======================================================
-// OLED
+// PANTALLAS
 // ======================================================
 
+// OLED
 Adafruit_SSD1306 display(
   SCREEN_WIDTH,
   SCREEN_HEIGHT,
@@ -115,38 +113,46 @@ Adafruit_SSD1306 display(
   -1
 );
 
+// LCD 16x2
+LiquidCrystal_I2C lcd(
+  LCD_ADDRESS,
+  LCD_COLUMNAS,
+  LCD_FILAS
+);
+
 
 // ======================================================
 // INTERRUPCIÓN DEL MONEDERO
 // ======================================================
 //
-// Esta función se ejecuta automáticamente cada vez
-// que GPIO18 detecta un pulso del PC817.
+// Solo cuenta pulsos.
 //
-// Debe ser rápida:
-// no usar Serial, WiFi, HTTP, display ni delay() aquí.
+// No utilizar aquí:
+// Serial, OLED, LCD, WiFi, HTTP ni delay().
 // ======================================================
 
 void IRAM_ATTR contarPulso() {
 
   unsigned long ahora = micros();
+  
+  display.println("CONTANDO...");
 
   if (
     ahora - ultimoPulsoUs >= FILTRO_PULSO_US
   ) {
 
     pulsos++;
+
     ultimoPulsoUs = ahora;
   }
 }
 
 
 // ======================================================
-// FUNCIONES AUXILIARES DE PANTALLA
+// FUNCIONES AUXILIARES OLED
 // ======================================================
 
-// Encabezado común utilizado en las pantallas.
-void mostrarEncabezado() {
+void mostrarEncabezadoOLED() {
 
   display.setTextSize(2);
   display.setCursor(0, 0);
@@ -158,12 +164,29 @@ void mostrarEncabezado() {
 }
 
 
-// Pantalla principal cuando no existe saldo.
+// ======================================================
+// FUNCIONES AUXILIARES LCD
+// ======================================================
+
+void limpiarLCD() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+}
+
+
+// ======================================================
+// PANTALLA INICIAL
+// ======================================================
+
 void mostrarPantallaInicial() {
+
+  // ---------------- OLED ----------------
 
   display.clearDisplay();
 
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
   display.println("Saldo:");
 
@@ -171,30 +194,61 @@ void mostrarPantallaInicial() {
   display.println("$0");
 
   display.display();
+
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print("Zona D CETIS117");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Saldo: $0");
 }
 
 
-// Muestra el saldo disponible.
+// ======================================================
+// MOSTRAR SALDO
+// ======================================================
+
 void mostrarSaldo(
   unsigned long saldo
 ) {
 
+  // ---------------- OLED ----------------
+
   display.clearDisplay();
 
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
   display.println("Saldo acumulado:");
 
   display.setTextSize(3);
+
   display.print("$");
   display.println(saldo);
 
   display.display();
+
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print("Zona D CETIS117");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Saldo: $");
+  lcd.print(saldo);
 }
 
 
-// Decide automáticamente si mostrar $0
-// o un saldo existente.
+// ======================================================
+// MOSTRAR SALDO ACTUAL
+// ======================================================
+
 void mostrarSaldoActual(
   unsigned long saldo
 ) {
@@ -210,70 +264,133 @@ void mostrarSaldoActual(
 }
 
 
-// Muestra la ficha obtenida del servicio.
+// ======================================================
+// MOSTRAR FICHA
+// ======================================================
+
 void mostrarFicha(
   String ficha
 ) {
 
+  // ---------------- OLED ----------------
+
   display.clearDisplay();
 
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
-  display.println("Ficha Generada:");
+  display.println("FICHA GENERADA:");
 
   display.setTextSize(3);
+
   display.println(ficha);
 
   display.display();
+
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print("Usuario / Contraseña:");
+
+  // Centrar la ficha en la segunda línea
+  int columna = (16 - ficha.length()) / 2;
+
+  lcd.setCursor(columna, 1);
+
+  lcd.print(ficha);
 }
 
 
-// Mensaje mostrado mientras se realiza
-// la petición HTTP.
+// ======================================================
+// MOSTRAR "GENERANDO FICHA"
+// ======================================================
+
 void mostrarGenerandoFicha() {
+
+  // ---------------- OLED ----------------
 
   display.clearDisplay();
 
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
   display.println("Generando ficha,");
   display.println("espere un momento");
   display.println("por favor...");
 
   display.display();
+
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print("Generando ficha");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Espere...");
 }
 
 
-// Muestra el código generado cuando
-// no fue posible obtener una ficha.
+// ======================================================
+// MOSTRAR CÓDIGO DE REEMBOLSO
+// ======================================================
+
 void mostrarCodigoReembolso(
   String codigo
 ) {
 
+  // ---------------- OLED ----------------
+
   display.clearDisplay();
 
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
-  display.println("Codigo de Reembolso:");
+  display.println("Codigo Reembolso:");
   display.println();
 
   display.setTextSize(2);
+
   display.println(codigo);
 
   display.display();
+
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print("Reembolso:");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print(codigo);
 }
 
 
 // ======================================================
-// INICIALIZAR OLED
+// INICIALIZAR OLED + LCD
 // ======================================================
 
-void inicializarPantalla() {
+void inicializarPantallas() {
+
+  /*
+   * OLED y LCD comparten el mismo bus I2C:
+   *
+   * SDA -> GPIO21
+   * SCL -> GPIO22
+   */
 
   Wire.begin(
-    OLED_SDA,
-    OLED_SCL
+    I2C_SDA,
+    I2C_SCL
   );
+
+
+  // ==================================================
+  // OLED
+  // ==================================================
 
   if (
     !display.begin(
@@ -291,19 +408,44 @@ void inicializarPantalla() {
     }
   }
 
+
   display.setTextColor(
     SSD1306_WHITE
   );
 
   display.clearDisplay();
 
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
   display.println(
     "Iniciando..."
   );
 
   display.display();
+
+
+  // ==================================================
+  // LCD
+  // ==================================================
+
+  lcd.init();
+
+  lcd.backlight();
+
+  limpiarLCD();
+
+  lcd.print(
+    "Zona D CETIS117"
+  );
+
+  lcd.setCursor(
+    0,
+    1
+  );
+
+  lcd.print(
+    "Iniciando..."
+  );
 }
 
 
@@ -313,19 +455,40 @@ void inicializarPantalla() {
 
 void conectarWiFi() {
 
+  // ---------------- OLED ----------------
+
   display.clearDisplay();
 
-  display.setCursor(0, 0);
-  
-  mostrarEncabezado();
+  mostrarEncabezadoOLED();
 
   display.setTextSize(1);
+
   display.println(
     "Conectando a Zona D.."
   );
 
   display.display();
 
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print(
+    "Conectando WiFi"
+  );
+
+  lcd.setCursor(
+    0,
+    1
+  );
+
+  lcd.print(
+    "Espere..."
+  );
+
+
+  // ---------------- WIFI ----------------
 
   WiFi.begin(
     ssid,
@@ -338,14 +501,17 @@ void conectarWiFi() {
   ) {
 
     delay(500);
+
     Serial.print(".");
   }
 
 
   Serial.println();
+
   Serial.println(
     "WiFi conectado"
   );
+
 
   Serial.print(
     "IP: "
@@ -356,14 +522,27 @@ void conectarWiFi() {
   );
 
 
+  // ---------------- OLED ----------------
+
   display.clearDisplay();
-  display.setCursor(0, 0);
+
+  mostrarEncabezadoOLED();
 
   display.println(
-    "Zona D conectado"
+    "WiFi conectado"
   );
 
   display.display();
+
+
+  // ---------------- LCD -----------------
+
+  limpiarLCD();
+
+  lcd.print(
+    "WiFi conectado"
+  );
+
 
   delay(1000);
 }
@@ -380,7 +559,9 @@ void inicializarMonedero() {
     INPUT_PULLUP
   );
 
+
   delay(500);
+
 
   attachInterrupt(
     digitalPinToInterrupt(
@@ -389,6 +570,7 @@ void inicializarMonedero() {
     contarPulso,
     FALLING
   );
+
 
   Serial.println(
     "Monedero listo"
@@ -399,10 +581,6 @@ void inicializarMonedero() {
 // ======================================================
 // GENERAR CÓDIGO DE REEMBOLSO
 // ======================================================
-//
-// El código se utiliza como referencia para devolver
-// los $10 correspondientes a una operación fallida.
-// ======================================================
 
 String generarCodigoReembolso() {
 
@@ -411,6 +589,7 @@ String generarCodigoReembolso() {
       100000,
       1000000
     );
+
 
   return
     "ZD-" + String(numero);
@@ -421,15 +600,13 @@ String generarCodigoReembolso() {
 // EXTRAER FICHA DE LA RESPUESTA JSON
 // ======================================================
 //
-// Espera algo como:
+// Ejemplo:
 //
 // {"Ficha":"211210"}
 //
-// Devuelve:
+// Resultado:
 //
 // 211210
-//
-// Si "Ficha" no existe, devuelve cadena vacía.
 // ======================================================
 
 String extraerFicha(
@@ -440,6 +617,7 @@ String extraerFicha(
     json.indexOf(
       "\"Ficha\""
     );
+
 
   if (
     posicionFicha == -1
@@ -455,11 +633,13 @@ String extraerFicha(
       posicionFicha
     );
 
+
   int primeraComilla =
     json.indexOf(
       "\"",
       dosPuntos
     );
+
 
   int segundaComilla =
     json.indexOf(
@@ -487,15 +667,6 @@ String extraerFicha(
 // ======================================================
 // CONSUMIR SERVICIO DE VENTA
 // ======================================================
-//
-// Realiza una única petición POST.
-//
-// Si el servicio responde correctamente,
-// devuelve el JSON recibido.
-//
-// Si ocurre un error de red o WiFi,
-// devuelve cadena vacía.
-// ======================================================
 
 String venderFicha() {
 
@@ -513,13 +684,16 @@ String venderFicha() {
 
   HTTPClient http;
 
+
   http.begin(
     URL_VENTA
   );
 
+
   http.setTimeout(
     HTTP_TIMEOUT_MS
   );
+
 
   http.addHeader(
     "Content-Type",
@@ -552,6 +726,7 @@ String venderFicha() {
     response =
       http.getString();
 
+
     Serial.print(
       "HTTP: "
     );
@@ -559,6 +734,7 @@ String venderFicha() {
     Serial.println(
       httpCode
     );
+
 
     Serial.print(
       "Respuesta: "
@@ -584,27 +760,23 @@ String venderFicha() {
 
   http.end();
 
+
   return response;
 }
 
 
 // ======================================================
-// DESCONTAR EL PRECIO DE UNA OPERACIÓN
+// DESCONTAR PRECIO DE LA OPERACIÓN
 // ======================================================
 //
-// Tanto una ficha exitosa como un reembolso
-// consumen únicamente $10 del saldo.
+// Descuenta únicamente $10.
 //
-// Cualquier cantidad superior queda disponible.
+// Si el usuario introdujo más dinero,
+// el excedente queda como saldo.
 //
 // Ejemplo:
 //
-// saldo = $11
-// operación = $10
-// saldo restante = $1
-//
-// Se deshabilitan momentáneamente las interrupciones
-// para modificar el contador de forma segura.
+// $11 - $10 = $1
 // ======================================================
 
 unsigned long descontarPrecioFicha() {
@@ -641,15 +813,6 @@ unsigned long descontarPrecioFicha() {
 // ======================================================
 // INICIAR PANTALLA TEMPORAL
 // ======================================================
-//
-// Registra:
-// - qué pantalla estamos mostrando
-// - cuándo comenzó
-// - qué saldo existía en ese momento
-//
-// Si el saldo cambia significa que entró
-// una moneda nueva.
-// ======================================================
 
 void iniciarPantallaTemporal(
   EstadoPantalla nuevoEstado,
@@ -659,8 +822,10 @@ void iniciarPantallaTemporal(
   estadoPantalla =
     nuevoEstado;
 
+
   saldoBasePantalla =
     saldoActual;
+
 
   inicioEstadoPantalla =
     millis();
@@ -675,12 +840,13 @@ void iniciarPantallaTemporal(
 // - ficha generada
 // - código de reembolso
 //
-// Devuelve true mientras la pantalla temporal
-// está activa.
-//
 // La pantalla termina cuando:
-// 1. entra una nueva moneda
-// 2. transcurren 20 segundos
+//
+// 1. entra una moneda nueva
+// 2. pasan 20 segundos
+//
+// Al terminar se muestra el saldo disponible
+// en OLED y LCD.
 // ======================================================
 
 bool procesarPantallaTemporal(
@@ -699,9 +865,9 @@ bool procesarPantallaTemporal(
     pulsos;
 
 
-  // --------------------------------------------------
-  // Entró una moneda nueva
-  // --------------------------------------------------
+  // ==================================================
+  // ENTRÓ UNA NUEVA MONEDA
+  // ==================================================
 
   if (
     saldoActual != saldoBasePantalla
@@ -709,6 +875,7 @@ bool procesarPantallaTemporal(
 
     estadoPantalla =
       ESTADO_NORMAL;
+
 
     pulsosAnteriores =
       saldoActual;
@@ -732,9 +899,9 @@ bool procesarPantallaTemporal(
   }
 
 
-  // --------------------------------------------------
-  // Transcurrieron los 20 segundos
-  // --------------------------------------------------
+  // ==================================================
+  // PASARON 20 SEGUNDOS
+  // ==================================================
 
   if (
     millis() - inicioEstadoPantalla
@@ -743,6 +910,7 @@ bool procesarPantallaTemporal(
 
     estadoPantalla =
       ESTADO_NORMAL;
+
 
     pulsosAnteriores =
       saldoActual;
@@ -776,17 +944,12 @@ bool procesarPantallaTemporal(
 //
 // Flujo:
 //
-// 1. muestra "Generando ficha"
-// 2. consume Cloud Run una sola vez
-// 3. si obtiene ficha:
-//      - descuenta $10
-//      - conserva excedente
-//      - muestra ficha
-//
-// 4. si falla:
-//      - descuenta $10
-//      - conserva excedente
-//      - genera código de reembolso
+// 1. Muestra "Generando ficha".
+// 2. Consume Cloud Run una sola vez.
+// 3. Descuenta $10.
+// 4. Si hay ficha, la muestra.
+// 5. Si falla, genera código de reembolso.
+// 6. Conserva cualquier saldo superior a $10.
 // ======================================================
 
 void procesarVenta(
@@ -914,11 +1077,14 @@ void setup() {
   );
 
 
-  inicializarPantalla();
+  inicializarPantallas();
+
 
   conectarWiFi();
 
+
   inicializarMonedero();
+
 
   mostrarPantallaInicial();
 }
@@ -928,14 +1094,12 @@ void setup() {
 // LOOP PRINCIPAL
 // ======================================================
 //
-// El loop tiene únicamente tres responsabilidades:
+// 1. Controla pantallas temporales.
+// 2. Actualiza saldo.
+// 3. Al llegar a $10 procesa una venta.
 //
-// 1. mantener las pantallas temporales
-// 2. actualizar el saldo
-// 3. iniciar una venta al llegar a $10
-//
-// El conteo de monedas ocurre de forma independiente
-// mediante la interrupción contarPulso().
+// El conteo del dinero ocurre mediante la interrupción
+// del GPIO18.
 // ======================================================
 
 void loop() {
@@ -946,7 +1110,7 @@ void loop() {
 
 
   // ==================================================
-  // PANTALLA DE FICHA / REEMBOLSO
+  // FICHA / REEMBOLSO EN PANTALLA
   // ==================================================
 
   if (
